@@ -31,8 +31,8 @@ const (
 	// configDir is created if absent.
 	configDir = "/etc/smarthomeentry"
 
-	// domoticzAddr is the local Domoticz address checked at startup.
-	domoticzAddr = "localhost:8080"
+	// defaultLocalAddr is used when SMARTHOMEENTRY_LOCAL_ADDR is not set.
+	defaultLocalAddr = "localhost:8080"
 
 	// inactivePollInterval is how long to wait before re-fetching config
 	// when the control plane signals active=false.
@@ -45,14 +45,15 @@ const (
 
 // Agent is the top-level orchestrator. Create with New; run with Run.
 type Agent struct {
-	api    *api.Client
-	bo     *backoff.Backoff
-	lockFH *os.File
+	api       *api.Client
+	bo        *backoff.Backoff
+	lockFH    *os.File
+	localAddr string
 }
 
 // New creates an Agent, validates inputs, and acquires the process-level lock
 // (preventing multiple instances). The caller must defer a.Close().
-func New(apiURL, token string) (*Agent, error) {
+func New(apiURL, token, localAddr string) (*Agent, error) {
 	client, err := api.New(apiURL, token)
 	if err != nil {
 		return nil, fmt.Errorf("api client: %w", err)
@@ -63,10 +64,15 @@ func New(apiURL, token string) (*Agent, error) {
 		return nil, err
 	}
 
+	if localAddr == "" {
+		localAddr = defaultLocalAddr
+	}
+
 	return &Agent{
-		api:    client,
-		bo:     backoff.New(),
-		lockFH: lockFH,
+		api:       client,
+		bo:        backoff.New(),
+		lockFH:    lockFH,
+		localAddr: localAddr,
 	}, nil
 }
 
@@ -135,7 +141,7 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		return tunnel.ErrInactive
 	}
 
-	checkDomoticz()
+	checkDomoticz(a.localAddr)
 
 	// Resolve the private key: use the one from config (first call) or fall
 	// back to the key previously written to disk (subsequent calls after the
@@ -162,6 +168,7 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		TunnelPort: cfg.TunnelPort,
 		SSHUser:    cfg.SSHUser,
 		PrivateKey: privateKey,
+		LocalAddr:  a.localAddr,
 		HeartbeatFunc: func(hbCtx context.Context) (bool, error) {
 			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL)
 			if hbErr != nil {
@@ -182,16 +189,16 @@ func (a *Agent) runCycle(ctx context.Context) error {
 	return err
 }
 
-// checkDomoticz tests whether Domoticz is reachable and logs the result.
+// checkDomoticz tests whether the local server is reachable and logs the result.
 // It is a warning-only check; the agent continues regardless.
-func checkDomoticz() {
-	conn, err := net.DialTimeout("tcp", domoticzAddr, 5*time.Second)
+func checkDomoticz(addr string) {
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
-		log.Printf("WARNING: Domoticz not reachable at %s: %v", domoticzAddr, err)
+		log.Printf("WARNING: local server not reachable at %s: %v", addr, err)
 		return
 	}
 	conn.Close()
-	log.Printf("Domoticz reachable at %s", domoticzAddr)
+	log.Printf("local server reachable at %s", addr)
 }
 
 // writeKey writes the PEM-encoded private key to keyFilePath with mode 0600.
