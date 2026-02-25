@@ -137,8 +137,21 @@ func (a *Agent) runCycle(ctx context.Context) error {
 
 	checkDomoticz()
 
-	if err := writeKey(cfg.PrivateKey); err != nil {
-		return fmt.Errorf("write SSH key: %w", err)
+	// Resolve the private key: use the one from config (first call) or fall
+	// back to the key previously written to disk (subsequent calls after the
+	// token has been consumed and the server returns an empty string).
+	privateKey := cfg.PrivateKey
+	if privateKey != "" {
+		if err := writeKey(privateKey); err != nil {
+			return fmt.Errorf("write SSH key: %w", err)
+		}
+	} else {
+		keyBytes, err := os.ReadFile(keyFilePath)
+		if err != nil {
+			return fmt.Errorf("SSH key not in config and not on disk (%s): %w — regenerate install token", keyFilePath, err)
+		}
+		privateKey = string(keyBytes)
+		log.Printf("using SSH key from disk (%s)", keyFilePath)
 	}
 
 	start := time.Now()
@@ -148,7 +161,7 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		Port:       cfg.Port,
 		TunnelPort: cfg.TunnelPort,
 		SSHUser:    cfg.SSHUser,
-		PrivateKey: cfg.PrivateKey,
+		PrivateKey: privateKey,
 		HeartbeatFunc: func(hbCtx context.Context) (bool, error) {
 			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL)
 			if hbErr != nil {
