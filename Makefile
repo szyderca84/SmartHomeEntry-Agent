@@ -1,4 +1,15 @@
-.PHONY: all build clean install tidy vet
+GO      := $(shell which go 2>/dev/null)
+DOCKER  := $(shell which docker 2>/dev/null)
+GO_IMG  := golang:1.22
+
+# Use local Go if available, otherwise fall back to Docker.
+ifeq ($(GO),)
+  RUN := $(DOCKER) run --rm -v $(CURDIR):/app -w /app $(GO_IMG)
+else
+  RUN :=
+endif
+
+.PHONY: all build clean install tidy vet test
 
 BINARY   := smarthomeentry-agent
 BUILD_DIR := build
@@ -39,7 +50,7 @@ tidy:
 
 ## test: run all unit tests with race detector
 test:
-	go test -race -count=1 ./...
+	$(RUN) go test -race -count=1 ./...
 
 ## vet: run go vet across all packages
 vet:
