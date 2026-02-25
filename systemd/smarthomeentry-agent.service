@@ -1,0 +1,39 @@
+[Unit]
+Description=SmartHomeEntry Agent
+Documentation=https://github.com/smarthomeentry/agent
+# Wait for a routed network so HTTPS to the control plane works.
+After=network-online.target
+Wants=network-online.target
+# Allow up to 5 rapid restarts per 10-minute window before giving up.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Credentials are kept in a root-only file; never in unit or environment.
+EnvironmentFile=/etc/smarthomeentry/agent.env
+ExecStart=/usr/local/bin/smarthomeentry-agent
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Logs go to journald (readable with journalctl -u smarthomeentry-agent -f)
+# and also to /var/log/smarthomeentry.log via the agent's own logger.
+StandardOutput=journal
+StandardError=journal
+
+# --- Security hardening ---
+NoNewPrivileges=true
+# Allow writes only where the agent legitimately needs them.
+ProtectSystem=strict
+ReadWritePaths=/etc/smarthomeentry /var/log /var/run
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
