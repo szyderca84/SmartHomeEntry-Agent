@@ -37,6 +37,10 @@ tidy:
 	go mod tidy
 	go mod verify
 
+## test: run all unit tests with race detector
+test:
+	go test -race -count=1 ./...
+
 ## vet: run go vet across all packages
 vet:
 	go vet ./...
