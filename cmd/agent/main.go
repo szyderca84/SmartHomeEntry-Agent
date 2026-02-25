@@ -39,7 +39,10 @@ func main() {
 		log.Fatal("SMARTHOMEENTRY_INSTALL_TOKEN environment variable is required")
 	}
 
-	a, err := agent.New(apiURL, token)
+	// Optional: override local home automation server address (default: localhost:8080)
+	localAddr := os.Getenv("SMARTHOMEENTRY_LOCAL_ADDR")
+
+	a, err := agent.New(apiURL, token, localAddr)
 	if err != nil {
 		log.Fatalf("agent init: %v", err)
 	}

@@ -41,6 +41,9 @@ read -rp "  API URL (e.g. https://api.smarthomeentry.example.com): " API_URL
 read -rp "  Install Token: " INSTALL_TOKEN
 [[ -n "${INSTALL_TOKEN}" ]] || die "Install token cannot be empty."
 
+read -rp "  Local server address [localhost:8080]: " LOCAL_ADDR
+LOCAL_ADDR="${LOCAL_ADDR:-localhost:8080}"
+
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -77,6 +80,7 @@ cat > "${TMP_ENV}" <<EOF
 # Managed by install.sh — do not edit manually while service is running.
 SMARTHOMEENTRY_API_URL=${API_URL}
 SMARTHOMEENTRY_INSTALL_TOKEN=${INSTALL_TOKEN}
+SMARTHOMEENTRY_LOCAL_ADDR=${LOCAL_ADDR}
 EOF
 chmod 600 "${TMP_ENV}"
 mv "${TMP_ENV}" "${ENV_FILE}"

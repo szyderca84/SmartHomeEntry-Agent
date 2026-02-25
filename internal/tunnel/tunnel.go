@@ -20,9 +20,6 @@ import (
 )
 
 const (
-	// domoticzAddr is the local address of the Domoticz home automation server.
-	domoticzAddr = "localhost:8080"
-
 	// keepAliveInterval is how often SSH keepalive requests are sent to the relay.
 	keepAliveInterval = 30 * time.Second
 
@@ -56,6 +53,9 @@ type Config struct {
 	// HeartbeatFunc is called every 60 seconds. Returning active=false causes
 	// Run to close the tunnel and return ErrInactive.
 	HeartbeatFunc func(ctx context.Context) (active bool, err error)
+	// LocalAddr is the address of the local home automation server to proxy to.
+	// Defaults to "localhost:8080" if empty.
+	LocalAddr string
 }
 
 // Run establishes the reverse SSH tunnel and blocks until one of the following:
@@ -63,6 +63,11 @@ type Config struct {
 //   - the SSH connection or keepalive fails (returns a wrapped error)
 //   - the heartbeat signals active=false (returns ErrInactive)
 func Run(ctx context.Context, cfg *Config) error {
+	localAddr := cfg.LocalAddr
+	if localAddr == "" {
+		localAddr = "localhost:8080"
+	}
+
 	signer, err := ssh.ParsePrivateKey([]byte(cfg.PrivateKey))
 	if err != nil {
 		return fmt.Errorf("parse private key: %w", err)
@@ -97,7 +102,7 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 	defer listener.Close()
 
-	log.Printf("reverse tunnel active: relay %s → localhost:8080 (Domoticz)", bindAddr)
+	log.Printf("reverse tunnel active: relay %s → %s", bindAddr, localAddr)
 
 	// tunnelCtx is cancelled when this function returns, stopping all goroutines.
 	tunnelCtx, cancel := context.WithCancel(ctx)
@@ -151,7 +156,7 @@ func Run(ctx context.Context, cfg *Config) error {
 				}
 				return
 			}
-			go proxyConn(conn)
+			go proxyConn(conn, localAddr)
 		}
 	}()
 
@@ -163,13 +168,13 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 }
 
-// proxyConn bidirectionally proxies a relay connection to the local Domoticz server.
-func proxyConn(remote net.Conn) {
+// proxyConn bidirectionally proxies a relay connection to the local home automation server.
+func proxyConn(remote net.Conn, localAddr string) {
 	defer remote.Close()
 
-	local, err := net.DialTimeout("tcp", domoticzAddr, 5*time.Second)
+	local, err := net.DialTimeout("tcp", localAddr, 5*time.Second)
 	if err != nil {
-		log.Printf("cannot reach Domoticz at %s for proxied connection: %v", domoticzAddr, err)
+		log.Printf("cannot reach local server at %s: %v", localAddr, err)
 		return
 	}
 	defer local.Close()
