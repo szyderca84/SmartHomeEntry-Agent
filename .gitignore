@@ -1,0 +1,7 @@
+build/
+*.key
+*.pem
+agent.env
+/etc/
+dist/
+CLAUDE.MD
