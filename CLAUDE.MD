@@ -1,4 +1,4 @@
-We are implementing SmartHomeEntry Client Agent in Go.
+We are implementing SmartHomeEntry Client Agent in Go
 
 This agent must:
 
