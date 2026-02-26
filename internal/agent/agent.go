@@ -22,6 +22,7 @@ import (
 
 	"github.com/smarthomeentry/agent/internal/api"
 	"github.com/smarthomeentry/agent/internal/backoff"
+	"github.com/smarthomeentry/agent/internal/metrics"
 	"github.com/smarthomeentry/agent/internal/tunnel"
 )
 
@@ -170,7 +171,22 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		PrivateKey: privateKey,
 		LocalAddr:  a.localAddr,
 		HeartbeatFunc: func(hbCtx context.Context) (bool, error) {
-			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL)
+			// Collect CPU/RAM metrics; log but don't fail the heartbeat if collection errors.
+			var m *api.HeartbeatMetrics
+			if s, mErr := metrics.Collect(hbCtx); mErr != nil {
+				log.Printf("metrics collection error: %v (skipping metrics this heartbeat)", mErr)
+			} else {
+				m = &api.HeartbeatMetrics{
+					CPUPercent: s.CPUPercent,
+					RAMPercent: s.RAMPercent,
+					RAMUsedMB:  s.RAMUsedMB,
+					RAMTotalMB: s.RAMTotalMB,
+				}
+				log.Printf("metrics: cpu=%.1f%% ram=%.1f%% (%d/%d MB)",
+					m.CPUPercent, m.RAMPercent, m.RAMUsedMB, m.RAMTotalMB)
+			}
+
+			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL, m)
 			if hbErr != nil {
 				// Transient error: keep tunnel alive, do not deactivate.
 				return true, hbErr

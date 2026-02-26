@@ -293,7 +293,7 @@ func TestSendHeartbeat_ActiveTrue(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat")
+	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestSendHeartbeat_ActiveFalse(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat")
+	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestSendHeartbeat_EmptyBodyDefaultsToActive(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat")
+	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestSendHeartbeat_NonOKStatus(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat")
+	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
 	if err == nil {
 		t.Fatal("expected error for 503")
 	}
@@ -358,7 +358,7 @@ func TestSendHeartbeat_AuthHeaderSent(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb")
+	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
