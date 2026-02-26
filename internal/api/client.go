@@ -37,6 +37,15 @@ type HeartbeatResponse struct {
 	Active bool `json:"active"`
 }
 
+// HeartbeatMetrics carries optional CPU/RAM metrics sent alongside each heartbeat.
+// All fields are required when the struct is non-nil; pass nil to send a bare heartbeat.
+type HeartbeatMetrics struct {
+	CPUPercent float64 `json:"cpu_percent"`
+	RAMPercent float64 `json:"ram_percent"`
+	RAMUsedMB  int     `json:"ram_used_mb"`
+	RAMTotalMB int     `json:"ram_total_mb"`
+}
+
 // Client is an HTTPS-only API client for the SmartHomeEntry control plane.
 type Client struct {
 	baseURL string
@@ -130,14 +139,34 @@ func (c *Client) FetchConfig(ctx context.Context) (*AgentConfig, error) {
 }
 
 // SendHeartbeat POSTs to heartbeatURL and returns the server's current active flag.
+// If m is non-nil, CPU/RAM metrics are included in the request body.
 // On transient errors (network, non-200), it returns active=true to avoid accidentally
 // closing a healthy tunnel due to a momentary API blip.
-func (c *Client) SendHeartbeat(ctx context.Context, heartbeatURL string) (*HeartbeatResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, heartbeatURL, nil)
+func (c *Client) SendHeartbeat(ctx context.Context, heartbeatURL string, m *HeartbeatMetrics) (*HeartbeatResponse, error) {
+	var body []byte
+	if m != nil {
+		var err error
+		body, err = json.Marshal(m)
+		if err != nil {
+			return nil, fmt.Errorf("marshal heartbeat metrics: %w", err)
+		}
+	}
+
+	var bodyReader *bytes.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	} else {
+		bodyReader = bytes.NewReader(nil)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, heartbeatURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("build heartbeat request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
