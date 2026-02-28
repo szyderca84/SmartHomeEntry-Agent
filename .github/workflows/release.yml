@@ -20,9 +20,7 @@ jobs:
           go-version: '1.22'
 
       - name: Install nfpm
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/goreleaser/nfpm/main/scripts/install.sh \
-            | sh -s -- -b /usr/local/bin
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
       - name: Extract version (strip leading v)
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
