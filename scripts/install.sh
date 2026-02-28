@@ -1,115 +1,75 @@
-#!/usr/bin/env bash
-# install.sh — SmartHomeEntry Agent installer
-# Run as root on the target device (Raspberry Pi / home server).
-set -euo pipefail
+#!/bin/sh
+# SmartHomeEntry Agent – installer
+# Pobiera gotowy pakiet .deb i instaluje agenta.
+#
+# Użycie (nieinteraktywne, token z env):
+#   sudo SMARTHOMEENTRY_INSTALL_TOKEN=xxx sh install.sh
+#
+# Użycie interaktywne (bez tokenu w env):
+#   sudo sh install.sh
+set -eu
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-BINARY_NAME="smarthomeentry-agent"
-INSTALL_BIN="/usr/local/bin/${BINARY_NAME}"
-CONFIG_DIR="/etc/smarthomeentry"
-ENV_FILE="${CONFIG_DIR}/agent.env"
-LOG_FILE="/var/log/smarthomeentry.log"
-SERVICE_NAME="${BINARY_NAME}"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO="szyderca84/SmartHomeEntry-Agent"
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-info()  { echo "[install] $*"; }
-die()   { echo "[install] ERROR: $*" >&2; exit 1; }
+# ── Env vars (mogą być wbudowane przez panel SmartHomeEntry) ──────────
+API_URL="${SMARTHOMEENTRY_API_URL:-https://api.smarthomeentry.com}"
+TOKEN="${SMARTHOMEENTRY_INSTALL_TOKEN:-}"
+LOCAL_ADDR="${SMARTHOMEENTRY_LOCAL_ADDR:-localhost:8080}"
 
-# ---------------------------------------------------------------------------
-# Preflight
-# ---------------------------------------------------------------------------
-[[ $EUID -eq 0 ]] || die "This script must be run as root (use sudo)."
+# ── Sprawdź root ──────────────────────────────────────────────────────
+[ "$(id -u)" -eq 0 ] || { echo "Uruchom jako root: sudo sh $0"; exit 1; }
 
-command -v systemctl &>/dev/null || die "systemd is required."
+# ── Sprawdź systemd ───────────────────────────────────────────────────
+command -v systemctl > /dev/null 2>&1 || { echo "Wymagany systemd. Użyj Docker zamiast tego instalatora."; exit 1; }
 
-# ---------------------------------------------------------------------------
-# Gather credentials interactively
-# ---------------------------------------------------------------------------
 echo "=== SmartHomeEntry Agent Installer ==="
 echo ""
 
-read -rp "  API URL (e.g. https://api.smarthomeentry.example.com): " API_URL
-[[ "${API_URL}" == https://* ]] || die "API_URL must start with https://"
-
-read -rp "  Install Token: " INSTALL_TOKEN
-[[ -n "${INSTALL_TOKEN}" ]] || die "Install token cannot be empty."
-
-read -rp "  Local server address [localhost:8080]: " LOCAL_ADDR
-LOCAL_ADDR="${LOCAL_ADDR:-localhost:8080}"
-
-echo ""
-
-# ---------------------------------------------------------------------------
-# Build binary if not already built
-# ---------------------------------------------------------------------------
-BINARY_SRC="${REPO_ROOT}/build/${BINARY_NAME}"
-
-if [[ ! -f "${BINARY_SRC}" ]]; then
-    info "Binary not found — building now..."
-    command -v go &>/dev/null || die "Go toolchain not found. Install Go 1.22+ or pre-build the binary."
-    (cd "${REPO_ROOT}" && make build)
+# ── Interaktywne pytania jeśli brak env ───────────────────────────────
+if [ -z "${TOKEN}" ]; then
+  printf "  Token instalacyjny: "
+  read -r TOKEN
+  [ -n "${TOKEN}" ] || { echo "Token nie może być pusty."; exit 1; }
 fi
 
-[[ -f "${BINARY_SRC}" ]] || die "Build failed: ${BINARY_SRC} not found."
+echo "  API:   ${API_URL}"
+echo "  Addr:  ${LOCAL_ADDR}"
+echo ""
 
-# ---------------------------------------------------------------------------
-# Install binary
-# ---------------------------------------------------------------------------
-info "Installing binary → ${INSTALL_BIN}"
-install -o root -g root -m 755 "${BINARY_SRC}" "${INSTALL_BIN}"
+# ── Wykryj architekturę ───────────────────────────────────────────────
+ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
+case "${ARCH}" in
+  amd64|x86_64)      DEB_ARCH=amd64 ;;
+  arm64|aarch64)     DEB_ARCH=arm64 ;;
+  armhf|armv7l|arm)  DEB_ARCH=armhf ;;
+  *) echo "Nieobsługiwana architektura: ${ARCH}"; exit 1 ;;
+esac
 
-# ---------------------------------------------------------------------------
-# Create config directory and write credentials
-# ---------------------------------------------------------------------------
-info "Creating config directory ${CONFIG_DIR}"
-mkdir -p "${CONFIG_DIR}"
-chmod 750 "${CONFIG_DIR}"
+echo "  Architektura: ${DEB_ARCH}"
 
-info "Writing credentials → ${ENV_FILE}"
-# Write atomically via a temp file so the secrets are never partially readable.
-TMP_ENV="$(mktemp "${CONFIG_DIR}/.agent.env.XXXXXX")"
-cat > "${TMP_ENV}" <<EOF
-# SmartHomeEntry Agent — environment file
-# Managed by install.sh — do not edit manually while service is running.
-SMARTHOMEENTRY_API_URL=${API_URL}
-SMARTHOMEENTRY_INSTALL_TOKEN=${INSTALL_TOKEN}
-SMARTHOMEENTRY_LOCAL_ADDR=${LOCAL_ADDR}
-EOF
-chmod 600 "${TMP_ENV}"
-mv "${TMP_ENV}" "${ENV_FILE}"
+# ── Pobierz numer najnowszej wersji ──────────────────────────────────
+LATEST=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" \
+  | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
 
-# ---------------------------------------------------------------------------
-# Create log file
-# ---------------------------------------------------------------------------
-info "Creating log file ${LOG_FILE}"
-touch "${LOG_FILE}"
-chmod 644 "${LOG_FILE}"
+[ -n "${LATEST}" ] || { echo "Nie można pobrać wersji z GitHub."; exit 1; }
+echo "  Wersja:       ${LATEST}"
 
-# ---------------------------------------------------------------------------
-# Install systemd unit
-# ---------------------------------------------------------------------------
-info "Installing systemd service → ${SERVICE_FILE}"
-install -o root -g root -m 644 "${REPO_ROOT}/systemd/${SERVICE_NAME}.service" "${SERVICE_FILE}"
-
-# ---------------------------------------------------------------------------
-# Enable and start
-# ---------------------------------------------------------------------------
-info "Enabling and starting service"
-systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}"
-systemctl restart "${SERVICE_NAME}"
+# ── Pobierz i zainstaluj .deb ─────────────────────────────────────────
+DEB_URL="https://github.com/${REPO}/releases/download/v${LATEST}/smarthomeentry-agent_${LATEST}_${DEB_ARCH}.deb"
+TMP_DEB=$(mktemp /tmp/smarthomeentry-XXXXXX.deb)
 
 echo ""
-echo "=== Installation complete ==="
-echo ""
-echo "  Status:  systemctl status ${SERVICE_NAME}"
-echo "  Logs:    journalctl -u ${SERVICE_NAME} -f"
-echo "           tail -f ${LOG_FILE}"
-echo ""
+echo "Pobieranie pakietu..."
+curl -sSfL "${DEB_URL}" -o "${TMP_DEB}" || {
+  echo "Nie można pobrać pakietu: ${DEB_URL}"
+  rm -f "${TMP_DEB}"
+  exit 1
+}
+
+echo "Instalowanie..."
+SMARTHOMEENTRY_API_URL="${API_URL}" \
+SMARTHOMEENTRY_INSTALL_TOKEN="${TOKEN}" \
+SMARTHOMEENTRY_LOCAL_ADDR="${LOCAL_ADDR}" \
+  dpkg -i "${TMP_DEB}"
+
+rm -f "${TMP_DEB}"
