@@ -15,6 +15,7 @@ REPO="szyderca84/SmartHomeEntry-Agent"
 API_URL="${SMARTHOMEENTRY_API_URL:-https://api.smarthomeentry.com}"
 TOKEN="${SMARTHOMEENTRY_INSTALL_TOKEN:-}"
 LOCAL_ADDR="${SMARTHOMEENTRY_LOCAL_ADDR:-localhost:8080}"
+GH_TOKEN="${GH_TOKEN:-}"  # opcjonalny token GitHub dla prywatnych repozytoriów
 
 # ── Sprawdź root ──────────────────────────────────────────────────────
 [ "$(id -u)" -eq 0 ] || { echo "Uruchom jako root: sudo sh $0"; exit 1; }
@@ -48,10 +49,23 @@ esac
 echo "  Architektura: ${DEB_ARCH}"
 
 # ── Pobierz numer najnowszej wersji ──────────────────────────────────
-LATEST=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" \
+gh_curl() {
+  if [ -n "${GH_TOKEN}" ]; then
+    curl -sSfL -H "Authorization: token ${GH_TOKEN}" "$@"
+  else
+    curl -sSfL "$@"
+  fi
+}
+
+LATEST=$(gh_curl "https://api.github.com/repos/${REPO}/releases/latest" \
   | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
 
-[ -n "${LATEST}" ] || { echo "Nie można pobrać wersji z GitHub."; exit 1; }
+[ -n "${LATEST}" ] || {
+  echo "Nie można pobrać wersji z GitHub."
+  echo "Jeśli repozytorium jest prywatne, uruchom z tokenem:"
+  echo "  sudo GH_TOKEN=<twój_token> sh install.sh"
+  exit 1
+}
 echo "  Wersja:       ${LATEST}"
 
 # ── Pobierz i zainstaluj .deb ─────────────────────────────────────────
@@ -60,7 +74,7 @@ TMP_DEB=$(mktemp /tmp/smarthomeentry-XXXXXX.deb)
 
 echo ""
 echo "Pobieranie pakietu..."
-curl -sSfL "${DEB_URL}" -o "${TMP_DEB}" || {
+gh_curl "${DEB_URL}" -o "${TMP_DEB}" || {
   echo "Nie można pobrać pakietu: ${DEB_URL}"
   rm -f "${TMP_DEB}"
   exit 1
