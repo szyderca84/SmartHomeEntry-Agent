@@ -1,0 +1,37 @@
+name: smarthomeentry-agent
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: SmartHomeEntry <support@smarthomeentry.com>
+description: |
+  SmartHomeEntry Agent
+  Bezpieczny zdalny dostęp do systemu Smart Home przez szyfrowany tunel SSH.
+homepage: https://smarthomeentry.com
+license: MIT
+
+contents:
+  - src: ./build/smarthomeentry-agent
+    dst: /usr/local/bin/smarthomeentry-agent
+    file_info:
+      mode: 0755
+
+  - src: ./systemd/smarthomeentry-agent.service
+    dst: /etc/systemd/system/smarthomeentry-agent.service
+    file_info:
+      mode: 0644
+
+  - dst: /etc/smarthomeentry
+    type: dir
+    file_info:
+      mode: 0750
+
+  - dst: /var/log/smarthomeentry.log
+    type: ghost
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./packaging/postinstall.sh
+  preremove: ./packaging/preremove.sh
