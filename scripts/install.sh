@@ -9,6 +9,8 @@
 #   sudo sh install.sh
 set -eu
 
+REPO="szyderca84/SmartHomeEntry-Agent"
+
 # ── Env vars (mogą być wbudowane przez panel SmartHomeEntry) ──────────
 API_URL="${SMARTHOMEENTRY_API_URL:-https://api.smarthomeentry.com}"
 TOKEN="${SMARTHOMEENTRY_INSTALL_TOKEN:-}"
@@ -45,8 +47,15 @@ esac
 
 echo "  Architektura: ${DEB_ARCH}"
 
-# ── Pobierz i zainstaluj .deb przez API SmartHomeEntry ───────────────
-DEB_URL="${API_URL}/api/agent/download?arch=${DEB_ARCH}"
+# ── Pobierz numer najnowszej wersji ──────────────────────────────────
+LATEST=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" \
+  | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
+
+[ -n "${LATEST}" ] || { echo "Nie można pobrać wersji z GitHub."; exit 1; }
+echo "  Wersja:       ${LATEST}"
+
+# ── Pobierz i zainstaluj .deb ─────────────────────────────────────────
+DEB_URL="https://github.com/${REPO}/releases/download/v${LATEST}/smarthomeentry-agent_${LATEST}_${DEB_ARCH}.deb"
 TMP_DEB=$(mktemp /tmp/smarthomeentry-XXXXXX.deb)
 
 echo ""
