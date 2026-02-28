@@ -3,3 +3,4 @@ build/
 *.pem
 agent.env
 /etc/
+dist/

@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install nfpm
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/goreleaser/nfpm/main/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Extract version (strip leading v)
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build binaries
+        run: |
+          mkdir -p build dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64       go build -ldflags="-s -w" -o build/smarthomeentry-agent-amd64 ./cmd/agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64       go build -ldflags="-s -w" -o build/smarthomeentry-agent-arm64 ./cmd/agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w" -o build/smarthomeentry-agent-armhf ./cmd/agent
+
+      - name: Build .deb packages
+        run: |
+          declare -A DEB_ARCH=( [amd64]=amd64 [arm64]=arm64 [armhf]=armhf )
+          for GOARCH in amd64 arm64 armhf; do
+            cp build/smarthomeentry-agent-${GOARCH} build/smarthomeentry-agent
+            chmod +x build/smarthomeentry-agent
+            ARCH=${DEB_ARCH[$GOARCH]} VERSION=${{ env.VERSION }} \
+              nfpm package --config nfpm.yaml --packager deb \
+              --target dist/smarthomeentry-agent_${{ env.VERSION }}_${DEB_ARCH[$GOARCH]}.deb
+          done
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.deb
+            build/smarthomeentry-agent-amd64
+            build/smarthomeentry-agent-arm64
+            build/smarthomeentry-agent-armhf
