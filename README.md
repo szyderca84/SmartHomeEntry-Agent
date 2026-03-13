@@ -1,24 +1,24 @@
 # SmartHomeEntry Agent
 
-Agent zestawiający szyfrowany tunel SSH do zdalnego dostępu do Home Assistant / Domoticz za NAT-em — bez otwierania portów, bez VPN.
+Encrypted SSH reverse tunnel agent for remote access to Home Assistant / Domoticz behind NAT — no port forwarding, no VPN.
 
-## Jak działa
+## How it works
 
-Agent łączy się wychodzącym połączeniem SSH z serwerem relay i tworzy reverse tunnel. Użytkownik łączy się z HA/Domoticz przez relay, cały ruch idzie przez szyfrowane połączenie SSH.
+The agent opens an outbound SSH connection to a relay server and sets up a reverse tunnel. Users connect to HA/Domoticz through the relay. All traffic is encrypted.
 
 ```
-HA/Domoticz ──SSH──▶ relay ◀── przeglądarka użytkownika
+HA/Domoticz ──SSH──▶ relay ◀── user browser
 ```
 
-## Instalacja (Linux / Raspberry Pi)
+## Install (Linux / Raspberry Pi)
 
 ```sh
 curl -sSL https://raw.githubusercontent.com/szyderca84/SmartHomeEntry-Agent/main/scripts/install.sh | sudo sh
 ```
 
-Skrypt zapyta o token instalacyjny z panelu SmartHomeEntry.
+The script will ask for an install token from the SmartHomeEntry panel.
 
-Lub z tokenem w env (np. w skrypcie):
+Non-interactive:
 
 ```sh
 sudo SMARTHOMEENTRY_INSTALL_TOKEN=xxx sh install.sh
@@ -26,7 +26,7 @@ sudo SMARTHOMEENTRY_INSTALL_TOKEN=xxx sh install.sh
 
 ## Home Assistant Addon
 
-Dodaj repozytorium w HA → Supervisor → Add-on Store → trzy kropki → Repositories:
+Add the repository in HA → Supervisor → Add-on Store → ⋮ → Repositories:
 
 ```
 https://github.com/szyderca84/SmartHomeEntry-Agent
@@ -41,27 +41,27 @@ docker run -d \
   ghcr.io/szyderca84/smarthomeentry-agent:latest
 ```
 
-## Konfiguracja
+## Configuration
 
-Zmienne środowiskowe (ustawiane automatycznie przez installer):
+Environment variables (set automatically by the installer):
 
-| Zmienna | Opis | Domyślnie |
+| Variable | Description | Default |
 |---|---|---|
-| `SMARTHOMEENTRY_API_URL` | URL panelu | `https://api.smarthomeentry.com` |
-| `SMARTHOMEENTRY_INSTALL_TOKEN` | Token z panelu | — |
-| `SMARTHOMEENTRY_LOCAL_ADDR` | Adres lokalnego serwera | `localhost:8080` |
+| `SMARTHOMEENTRY_API_URL` | Control plane URL | `https://api.smarthomeentry.com` |
+| `SMARTHOMEENTRY_INSTALL_TOKEN` | Token from the panel | — |
+| `SMARTHOMEENTRY_LOCAL_ADDR` | Local server address | `localhost:8080` |
 
-Po instalacji agent działa jako usługa systemd (`smarthomeentry-agent.service`).
+After install the agent runs as a systemd service (`smarthomeentry-agent.service`).
 
-## Odinstalowanie
+## Uninstall
 
 ```sh
 sudo sh /usr/local/share/smarthomeentry/uninstall.sh
 ```
 
-## Budowanie ze źródeł
+## Build from source
 
 ```sh
-make build          # binarka w build/
+make build          # binary in build/
 make build-all      # amd64 + arm64 + armhf
 ```
