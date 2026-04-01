@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ErrUnauthorized is returned when the control plane rejects our token (HTTP 401/403).
+var ErrUnauthorized = errors.New("unauthorized: install token rejected by control plane")
 
 type AgentConfig struct {
 	Host         string `json:"host"`
@@ -70,7 +74,7 @@ func (c *Client) ValidateToken(ctx context.Context) error {
 	case http.StatusOK:
 		return nil
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("invalid install token (HTTP %d)", resp.StatusCode)
+		return ErrUnauthorized
 	default:
 		return fmt.Errorf("validate token: unexpected HTTP %d", resp.StatusCode)
 	}

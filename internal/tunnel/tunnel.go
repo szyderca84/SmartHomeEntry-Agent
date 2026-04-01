@@ -137,7 +137,9 @@ func proxyConn(remote net.Conn, localAddr string) {
 
 	local, err := net.DialTimeout("tcp", localAddr, 5*time.Second)
 	if err != nil {
-		log.Printf("cannot reach local server at %s: %v", localAddr, err)
+		log.Printf("ERROR: local service at %s is not reachable — incoming tunnel request dropped. "+
+			"Make sure your local server (e.g. Domoticz) is running and listening on %s. Raw error: %v",
+			localAddr, localAddr, err)
 		return
 	}
 	defer local.Close()

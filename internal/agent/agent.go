@@ -23,6 +23,10 @@ const (
 	stableThreshold      = time.Minute
 )
 
+// ErrTokenRevoked signals that the control plane rejected our token during
+// periodic re-validation (HTTP 401/403). The agent should stop gracefully.
+var ErrTokenRevoked = fmt.Errorf("install token revoked by control plane")
+
 type Agent struct {
 	api       *api.Client
 	bo        *backoff.Backoff
@@ -130,6 +134,7 @@ func (a *Agent) runCycle(ctx context.Context) error {
 
 	start := time.Now()
 
+	var hbCount int
 	err = tunnel.Run(ctx, &tunnel.Config{
 		Host:       cfg.Host,
 		Port:       cfg.Port,
@@ -138,6 +143,21 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		PrivateKey: privateKey,
 		LocalAddr:  a.localAddr,
 		HeartbeatFunc: func(hbCtx context.Context) (bool, error) {
+			hbCount++
+
+			// Re-validate token every 10 heartbeat cycles (~10 minutes).
+			if hbCount%10 == 0 {
+				if vErr := a.api.ValidateToken(hbCtx); vErr != nil {
+					if errors.Is(vErr, api.ErrUnauthorized) {
+						log.Println("token re-validation failed: 401 unauthorized — stopping tunnel")
+						return false, ErrTokenRevoked
+					}
+					log.Printf("token re-validation error (non-fatal): %v", vErr)
+				} else {
+					log.Println("token re-validation OK")
+				}
+			}
+
 			var m *api.HeartbeatMetrics
 			if s, mErr := metrics.Collect(hbCtx); mErr != nil {
 				log.Printf("metrics collection error: %v (skipping metrics this heartbeat)", mErr)
