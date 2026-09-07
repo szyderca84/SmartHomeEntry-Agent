@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/smarthomeentry/agent/internal/api"
@@ -26,6 +27,23 @@ const (
 // ErrTokenRevoked signals that the control plane rejected our token during
 // periodic re-validation (HTTP 401/403). The agent should stop gracefully.
 var ErrTokenRevoked = fmt.Errorf("install token revoked by control plane")
+
+// ErrLocalTargetChanged sygnalizuje, ze panel wskazal inny adres lokalny.
+// Nie jest to awaria: zrywamy tunel, zeby cykl wystartowal od nowa i podniosl
+// nowa wartosc. Bez tego zmiana adresu w panelu wymagalaby wejscia userowi na
+// maszyne i restartu uslugi (awaria 2026-09-07).
+var ErrLocalTargetChanged = fmt.Errorf("local target changed in control plane")
+
+// validLocalAddr - host:port. Wartosc przychodzi z sieci i trafia prosto do
+// net.Dial, wiec nie ufamy jej na slowo; przy odrzuceniu zostaje adres z env.
+func validLocalAddr(addr string) bool {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	n, err := strconv.Atoi(port)
+	return err == nil && n >= 1 && n <= 65535
+}
 
 type Agent struct {
 	api       *api.Client
@@ -85,6 +103,14 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 
+		if errors.Is(err, ErrLocalTargetChanged) {
+			log.Println("reconnecting with the new local target")
+			if !sleepCtx(ctx, 2*time.Second) {
+				return ctx.Err()
+			}
+			continue
+		}
+
 		if errors.Is(err, tunnel.ErrInactive) {
 			log.Printf("agent is inactive — retrying config in %s", inactivePollInterval)
 			if !sleepCtx(ctx, inactivePollInterval) {
@@ -114,7 +140,21 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		return tunnel.ErrInactive
 	}
 
-	checkDomoticz(a.localAddr)
+	// Panel ma pierwszenstwo nad agent.env - dzieki temu zly adres da sie
+	// poprawic zdalnie. Pusta lub niepoprawna wartosc = zostajemy przy env.
+	effectiveAddr := a.localAddr
+	if cfg.LocalAddr != "" {
+		if validLocalAddr(cfg.LocalAddr) {
+			if cfg.LocalAddr != effectiveAddr {
+				log.Printf("local target from control plane: %s (agent.env has %s)", cfg.LocalAddr, a.localAddr)
+			}
+			effectiveAddr = cfg.LocalAddr
+		} else {
+			log.Printf("WARNING: control plane sent an invalid local address %q — keeping %s", cfg.LocalAddr, effectiveAddr)
+		}
+	}
+
+	checkDomoticz(effectiveAddr)
 
 	// Use key from config if provided, otherwise fall back to key on disk
 	// (server returns empty string after the token has been consumed).
@@ -141,7 +181,7 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		TunnelPort: cfg.TunnelPort,
 		SSHUser:    cfg.SSHUser,
 		PrivateKey: privateKey,
-		LocalAddr:  a.localAddr,
+		LocalAddr:  effectiveAddr,
 		HeartbeatFunc: func(hbCtx context.Context) (bool, error) {
 			hbCount++
 
@@ -175,6 +215,13 @@ func (a *Agent) runCycle(ctx context.Context) error {
 			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL, m)
 			if hbErr != nil {
 				return true, hbErr
+			}
+
+			// Zmiana adresu w panelu wchodzi w zycie w ciagu jednego cyklu
+			// heartbeatu, bez restartu uslugi po stronie uzytkownika.
+			if resp.LocalAddr != "" && resp.LocalAddr != effectiveAddr && validLocalAddr(resp.LocalAddr) {
+				log.Printf("local target changed: %s -> %s — reconnecting", effectiveAddr, resp.LocalAddr)
+				return false, ErrLocalTargetChanged
 			}
 			return resp.Active, nil
 		},
