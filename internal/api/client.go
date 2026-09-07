@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/smarthomeentry/agent/internal/diagnostics"
 )
 
 // ErrUnauthorized is returned when the control plane rejects our token (HTTP 401/403).
@@ -120,13 +122,29 @@ func (c *Client) FetchConfig(ctx context.Context) (*AgentConfig, error) {
 
 // SendHeartbeat POSTs to heartbeatURL. On transient errors, returns active=true
 // to avoid accidentally closing a healthy tunnel.
-func (c *Client) SendHeartbeat(ctx context.Context, heartbeatURL string, m *HeartbeatMetrics) (*HeartbeatResponse, error) {
+// heartbeatBody laczy metryki i diagnostyke w jednym ciele zadania. Pola
+// metryk zostaja na najwyzszym poziomie, bo tak parsuje je control plane -
+// diagnostyka dochodzi obok jako opcjonalny obiekt.
+type heartbeatBody struct {
+	CPUPercent  float64             `json:"cpu_percent,omitempty"`
+	RAMPercent  float64             `json:"ram_percent,omitempty"`
+	RAMUsedMB   int                 `json:"ram_used_mb,omitempty"`
+	RAMTotalMB  int                 `json:"ram_total_mb,omitempty"`
+	Diagnostics *diagnostics.Report `json:"diagnostics,omitempty"`
+}
+
+func (c *Client) SendHeartbeat(ctx context.Context, heartbeatURL string, m *HeartbeatMetrics, d *diagnostics.Report) (*HeartbeatResponse, error) {
 	var body []byte
-	if m != nil {
+	if m != nil || d != nil {
+		hb := heartbeatBody{Diagnostics: d}
+		if m != nil {
+			hb.CPUPercent, hb.RAMPercent = m.CPUPercent, m.RAMPercent
+			hb.RAMUsedMB, hb.RAMTotalMB = m.RAMUsedMB, m.RAMTotalMB
+		}
 		var err error
-		body, err = json.Marshal(m)
+		body, err = json.Marshal(hb)
 		if err != nil {
-			return nil, fmt.Errorf("marshal heartbeat metrics: %w", err)
+			return nil, fmt.Errorf("marshal heartbeat body: %w", err)
 		}
 	}
 

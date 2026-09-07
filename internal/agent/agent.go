@@ -11,6 +11,7 @@ import (
 
 	"github.com/smarthomeentry/agent/internal/api"
 	"github.com/smarthomeentry/agent/internal/backoff"
+	"github.com/smarthomeentry/agent/internal/diagnostics"
 	"github.com/smarthomeentry/agent/internal/metrics"
 	"github.com/smarthomeentry/agent/internal/tunnel"
 )
@@ -32,6 +33,7 @@ type Agent struct {
 	bo        *backoff.Backoff
 	lockFH    *os.File
 	localAddr string
+	diag      *diagnostics.Recorder
 }
 
 func New(apiURL, token, localAddr string) (*Agent, error) {
@@ -54,6 +56,7 @@ func New(apiURL, token, localAddr string) (*Agent, error) {
 		bo:        backoff.New(),
 		lockFH:    lockFH,
 		localAddr: localAddr,
+		diag:      diagnostics.NewRecorder(),
 	}, nil
 }
 
@@ -142,6 +145,11 @@ func (a *Agent) runCycle(ctx context.Context) error {
 		SSHUser:    cfg.SSHUser,
 		PrivateKey: privateKey,
 		LocalAddr:  a.localAddr,
+		RecordLocalDial: func(err error) {
+			if diagnostics.Enabled() {
+				a.diag.Record(err)
+			}
+		},
 		HeartbeatFunc: func(hbCtx context.Context) (bool, error) {
 			hbCount++
 
@@ -172,7 +180,9 @@ func (a *Agent) runCycle(ctx context.Context) error {
 					m.CPUPercent, m.RAMPercent, m.RAMUsedMB, m.RAMTotalMB)
 			}
 
-			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL, m)
+			report := a.buildDiagnostics(hbCtx, hbCount)
+
+			resp, hbErr := a.api.SendHeartbeat(hbCtx, cfg.HeartbeatURL, m, report)
 			if hbErr != nil {
 				return true, hbErr
 			}
@@ -186,6 +196,36 @@ func (a *Agent) runCycle(ctx context.Context) error {
 	}
 
 	return err
+}
+
+// buildDiagnostics sklada raport o dostepnosci uslugi lokalnej.
+//
+// Sondowanie portow odpalamy tylko wtedy, gdy usluga NIE odpowiada, i nie
+// czesciej niz co 10 cykli (~10 minut). Przy dzialajacym tunelu nie ma po co
+// niczego sprawdzac na maszynie uzytkownika.
+func (a *Agent) buildDiagnostics(ctx context.Context, hbCount int) *diagnostics.Report {
+	if !diagnostics.Enabled() {
+		return nil
+	}
+	reachable, class, seen := a.diag.Snapshot()
+	if !seen {
+		// Nikt jeszcze nie probowal wejsc na tunel - nie mamy czego raportowac.
+		return nil
+	}
+
+	report := &diagnostics.Report{
+		LocalReachable:  reachable,
+		LocalErrorClass: class,
+		LocalAddrUsed:   a.localAddr,
+	}
+
+	if !reachable && hbCount%10 == 1 {
+		report.ListeningPorts = diagnostics.ProbePorts(ctx, diagnostics.ProbeHosts(a.localAddr))
+		log.Printf("diagnostyka: %s nieosiagalny (%s), nasluchujace porty: %v",
+			a.localAddr, class, report.ListeningPorts)
+	}
+
+	return report
 }
 
 func checkDomoticz(addr string) {

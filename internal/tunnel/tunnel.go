@@ -30,6 +30,10 @@ type Config struct {
 	PrivateKey    string
 	HeartbeatFunc func(ctx context.Context) (active bool, err error)
 	LocalAddr     string
+	// RecordLocalDial dostaje wynik kazdej proby polaczenia z usluga lokalna.
+	// Dzieki temu panel moze pokazac "polaczony, ale pod X nic nie odpowiada"
+	// zamiast samego 502 na subdomenie. Opcjonalne.
+	RecordLocalDial func(err error)
 }
 
 func Run(ctx context.Context, cfg *Config) error {
@@ -120,7 +124,7 @@ func Run(ctx context.Context, cfg *Config) error {
 				}
 				return
 			}
-			go proxyConn(conn, localAddr)
+			go proxyConn(conn, localAddr, cfg.RecordLocalDial)
 		}
 	}()
 
@@ -132,10 +136,13 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 }
 
-func proxyConn(remote net.Conn, localAddr string) {
+func proxyConn(remote net.Conn, localAddr string, record func(error)) {
 	defer remote.Close()
 
 	local, err := net.DialTimeout("tcp", localAddr, 5*time.Second)
+	if record != nil {
+		record(err)
+	}
 	if err != nil {
 		log.Printf("ERROR: local service at %s is not reachable — incoming tunnel request dropped. "+
 			"Make sure your local server (e.g. Domoticz) is running and listening on %s. Raw error: %v",

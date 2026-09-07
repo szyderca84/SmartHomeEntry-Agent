@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/smarthomeentry/agent/internal/diagnostics"
 )
 
 func newTestClient(baseURL string) *Client {
@@ -283,7 +285,7 @@ func TestSendHeartbeat_ActiveTrue(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
+	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -299,7 +301,7 @@ func TestSendHeartbeat_ActiveFalse(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
+	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -315,7 +317,7 @@ func TestSendHeartbeat_EmptyBodyDefaultsToActive(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
+	resp, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -331,7 +333,7 @@ func TestSendHeartbeat_NonOKStatus(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil)
+	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/heartbeat", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for 503")
 	}
@@ -347,8 +349,61 @@ func TestSendHeartbeat_AuthHeaderSent(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", nil)
+	_, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Diagnostyka ma dojechac obok metryk, w tym samym ciele zadania, nie zamiast
+// nich - control plane parsuje metryki z najwyzszego poziomu.
+func TestSendHeartbeat_DiagnostykaObokMetryk(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.Write([]byte(`{"active":true}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("https://example.com", "tok")
+	m := &HeartbeatMetrics{CPUPercent: 12.5, RAMPercent: 40, RAMUsedMB: 800, RAMTotalMB: 2000}
+	d := &diagnostics.Report{
+		LocalReachable:  false,
+		LocalErrorClass: "refused",
+		LocalAddrUsed:   "localhost:8080",
+		ListeningPorts:  []int{443},
+	}
+	if _, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", m, d); err != nil {
+		t.Fatalf("blad wysylki: %v", err)
+	}
+
+	if received["cpu_percent"] != 12.5 {
+		t.Errorf("metryki zgubione: %v", received)
+	}
+	diag, ok := received["diagnostics"].(map[string]any)
+	if !ok {
+		t.Fatalf("brak obiektu diagnostics: %v", received)
+	}
+	if diag["local_error_class"] != "refused" || diag["local_addr_used"] != "localhost:8080" {
+		t.Errorf("diagnostyka niepelna: %v", diag)
+	}
+}
+
+// Bez diagnostyki cialo zadania ma wygladac jak dotad - stary control plane
+// nie moze sie zakrztusic dodatkowym polem.
+func TestSendHeartbeat_BezDiagnostykiCialoBezZmian(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.Write([]byte(`{"active":true}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("https://example.com", "tok")
+	if _, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", &HeartbeatMetrics{CPUPercent: 5}, nil); err != nil {
+		t.Fatalf("blad wysylki: %v", err)
+	}
+	if _, present := received["diagnostics"]; present {
+		t.Errorf("pole diagnostics nie powinno byc wysylane: %v", received)
 	}
 }
