@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smarthomeentry/agent/internal/buildinfo"
 	"github.com/smarthomeentry/agent/internal/diagnostics"
 )
 
@@ -131,12 +132,15 @@ type heartbeatBody struct {
 	RAMUsedMB   int                 `json:"ram_used_mb,omitempty"`
 	RAMTotalMB  int                 `json:"ram_total_mb,omitempty"`
 	Diagnostics *diagnostics.Report `json:"diagnostics,omitempty"`
+	// Wersja agenta. Control plane pokazuje na jej podstawie "dostepna nowsza
+	// wersja" - bez zadnej automatycznej aktualizacji.
+	AgentVersion string `json:"agent_version,omitempty"`
 }
 
 func (c *Client) SendHeartbeat(ctx context.Context, heartbeatURL string, m *HeartbeatMetrics, d *diagnostics.Report) (*HeartbeatResponse, error) {
 	var body []byte
-	if m != nil || d != nil {
-		hb := heartbeatBody{Diagnostics: d}
+	{
+		hb := heartbeatBody{Diagnostics: d, AgentVersion: buildinfo.Version}
 		if m != nil {
 			hb.CPUPercent, hb.RAMPercent = m.CPUPercent, m.RAMPercent
 			hb.RAMUsedMB, hb.RAMTotalMB = m.RAMUsedMB, m.RAMTotalMB

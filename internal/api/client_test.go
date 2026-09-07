@@ -407,3 +407,44 @@ func TestSendHeartbeat_BezDiagnostykiCialoBezZmian(t *testing.T) {
 		t.Errorf("pole diagnostics nie powinno byc wysylane: %v", received)
 	}
 }
+
+// Wersja agenta musi lecieć w kazdym heartbeacie - takze wtedy, gdy nie ma
+// ani metryk, ani diagnostyki. Bez niej panel nie odrozni starego agenta od
+// takiego, ktory po prostu nic nie zaraportowal.
+func TestSendHeartbeat_ZawszeNiesieWersje(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.Write([]byte(`{"active":true}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("https://example.com", "tok")
+	if _, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", nil, nil); err != nil {
+		t.Fatalf("blad wysylki: %v", err)
+	}
+	if received["agent_version"] == nil || received["agent_version"] == "" {
+		t.Errorf("brak agent_version w ciele zadania: %v", received)
+	}
+}
+
+func TestSendHeartbeat_WersjaObokMetryk(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.Write([]byte(`{"active":true}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New("https://example.com", "tok")
+	m := &HeartbeatMetrics{CPUPercent: 10, RAMPercent: 20, RAMUsedMB: 100, RAMTotalMB: 500}
+	if _, err := c.SendHeartbeat(context.Background(), srv.URL+"/hb", m, nil); err != nil {
+		t.Fatalf("blad wysylki: %v", err)
+	}
+	if received["cpu_percent"] != 10.0 {
+		t.Errorf("metryki zgubione: %v", received)
+	}
+	if received["agent_version"] == nil {
+		t.Errorf("wersja zgubiona przy metrykach: %v", received)
+	}
+}

@@ -14,7 +14,8 @@ endif
 BINARY   := smarthomeentry-agent
 BUILD_DIR := build
 # Strip debug info and DWARF tables for a smaller production binary.
-LDFLAGS  := -ldflags="-s -w"
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS  := -ldflags="-s -w -X github.com/smarthomeentry/agent/internal/buildinfo.Version=$(VERSION)"
 
 all: build
 
