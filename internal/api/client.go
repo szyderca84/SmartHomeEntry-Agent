@@ -22,17 +22,10 @@ type AgentConfig struct {
 	PrivateKey   string `json:"private_key"`
 	Active       bool   `json:"active"`
 	HeartbeatURL string `json:"heartbeat_url"`
-	// LocalAddr pozwala zmienic cel przekierowania z panelu, bez wchodzenia
-	// userowi na maszyne. Puste = starszy control plane, uzywamy wtedy
-	// wartosci z agent.env.
-	LocalAddr string `json:"local_addr"`
 }
 
 type HeartbeatResponse struct {
 	Active bool `json:"active"`
-	// Ten sam cel co w AgentConfig. Heartbeat leci co minute, wiec zmiana
-	// adresu w panelu jest widoczna bez czekania na reconnect tunelu.
-	LocalAddr string `json:"local_addr"`
 }
 
 type HeartbeatMetrics struct {
