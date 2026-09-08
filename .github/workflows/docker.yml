@@ -29,9 +29,20 @@ jobs:
 
       - name: Ustal wersje z najnowszego tagu
         run: |
-          # Obraz :latest jest budowany z main, wiec wersja to najblizszy tag
-          # poprzedzajacy ten commit. Bez tagu w historii zostaje "dev".
-          V=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo dev)
+          # Obraz :latest jest budowany z main, wiec wersja opisuje polozenie
+          # wzgledem najblizszego tagu. BEZ --abbrev=0: samo zaokraglenie w dol
+          # do tagu sprawialo, ze kazdy build z main podawal sie za wydanie
+          # (np. "1.1.0"), wiec dwie rozne binarki raportowaly ta sama wersje.
+          # Kolumna agent_version istnieje po to, by support wiedzial, kto na
+          # czym siedzi - zaokraglona wartosc to przekreslala.
+          #
+          # Na tagu:      1.1.0
+          # Poza tagiem:  1.1.0-1-g9bd468e  (1 commit za tagiem, ten skrot)
+          # Bez tagow:    dev
+          #
+          # Endpoint heartbeatu przepuszcza to bez zmian: dopuszcza myslniki
+          # i do 32 znakow.
+          V=$(git describe --tags 2>/dev/null | sed 's/^v//' || echo dev)
           echo "AGENT_VERSION=$V" >> "$GITHUB_ENV"
           echo "Buduje obraz jako wersja: $V"
 
